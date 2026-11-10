@@ -25,11 +25,15 @@ const SHEET_ZAEHLER = "Zähler";
 
 const HEAD_ABL = ["Datum", "Gebäude", "Medium", "Zählernummer", "Zählerstand", "Einheit",
   "Verbrauch", "Tage", "Verbrauch pro Tag", "Foto", "Notiz", "Erfasst am"];
+// Optionale Spalte M "Link": in allen Zeilen dieselbe Formel, macht die URL in "Foto" anklickbar.
+// (Keine individuelle Formel je Zeile: Excel würde sie als berechnete Spalte auf alle Zeilen übertragen.)
+const LINK_HEAD = "Link";
+const LINK_FORMULA = '=IF(Ablesungen[[#This Row],[Foto]]="","",HYPERLINK(Ablesungen[[#This Row],[Foto]],"Foto öffnen"))';
 const A = { datum: 0, geb: 1, med: 2, nr: 3, stand: 4, einheit: 5, verbrauch: 6, tage: 7, proTag: 8, foto: 9, notiz: 10, erfasst: 11 };
 
 let pca = null;
 let account = null;
-let state = { meters: [], readings: [], blankRow: false, loadedAt: null, error: null, itemId: null };
+let state = { meters: [], readings: [], blankRow: false, cols: 12, hasLink: false, loadedAt: null, error: null, itemId: null };
 
 const $app = document.getElementById("app");
 const $backdrop = document.getElementById("backdrop");
@@ -200,6 +204,8 @@ function parseAblesungen(values, formulas) {
   }
   const rows = values.slice(1);
   const blankRow = rows.length === 1 && rows[0].every(v => v === "" || v === null);
+  const cols = values[0].length;
+  const hasLink = h[HEAD_ABL.length] === LINK_HEAD;
   const readings = [];
   rows.forEach((r, i) => {
     if (typeof r[A.datum] !== "number" || typeof r[A.stand] !== "number") return;
@@ -220,7 +226,7 @@ function parseAblesungen(values, formulas) {
     });
   });
   readings.sort((a, b) => a.datum - b.datum || a.erfasst - b.erfasst || a.idx - b.idx);
-  return { readings, blankRow };
+  return { readings, blankRow, cols, hasLink };
 }
 
 function readingsOf(geb, med, list = state.readings) { return list.filter(r => r.geb === geb && r.med === med); }
@@ -287,9 +293,12 @@ async function uploadPhoto(blob, meter, datum, suffix = "") {
   return item.webUrl;
 }
 
-function fotoCell(url) {
-  if (!url) return "";
-  return url.length <= 250 ? `=HYPERLINK("${url.replace(/"/g, "%22")}","Foto")` : url;
+// Zeile auf die Spaltenzahl der Tabelle bringen; Spalte "Link" bekommt die einheitliche Formel
+function fullRow(values, cols, hasLink) {
+  const r = values.slice();
+  if (hasLink) r.push(LINK_FORMULA);
+  while (r.length < cols) r.push("");
+  return r;
 }
 
 async function appendRow(id, values, useBlankRow) {
@@ -646,13 +655,13 @@ function openDetail(key) {
     const wasWarn = confirmWarn;
     $save.disabled = true; $save.textContent = "Speichere ...";
     try {
-      let blankRow = state.blankRow;
+      let blankRow = state.blankRow, cols = state.cols, hasLink = state.hasLink;
       if (!DEMO) {
         // Vor dem Schreiben frisch lesen, damit der Verbrauch auf dem aktuellen Stand berechnet wird
         const t = await graph("GET", `${tbl(state.itemId)}/range?$select=values,formulas`);
         const p = parseAblesungen(t.values, t.formulas);
         regs.forEach(x => { x.list = readingsOf(meter.geb, x.reg.med, p.readings); });
-        blankRow = p.blankRow;
+        ({ blankRow, cols, hasLink } = p);
       }
       const evs = regs.map((x, i) => evaluate(meter, x.list, datum, stands[i], nummer));
       if (evs.some(ev => ev.warnings.length) && !wasWarn) { update(); return; }
@@ -671,7 +680,7 @@ function openDetail(key) {
         let notiz = notizIn;
         if (ev.wechsel) notiz = `Zählerwechsel (alt: ${ev.prev.nummer})${notiz ? ". " + notiz : ""}`;
         return [datum, meter.geb, reg.med, nummer, stands[i], meter.einheit,
-          ev.verbrauch ?? "", ev.tage ?? "", ev.proTag ?? "", fotoCell(fotoUrls[i]), notiz, nowSerial()];
+          ev.verbrauch ?? "", ev.tage ?? "", ev.proTag ?? "", fotoUrls[i], notiz, nowSerial()];
       });
 
       $save.textContent = "Speichere ...";
@@ -682,7 +691,7 @@ function openDetail(key) {
           if (z) z[2] = nummer;
         }
       } else {
-        for (let i = 0; i < rows.length; i++) await appendRow(state.itemId, rows[i], blankRow && i === 0);
+        for (let i = 0; i < rows.length; i++) await appendRow(state.itemId, fullRow(rows[i], cols, hasLink), blankRow && i === 0);
         if (nummer !== meter.nummer && meter.zRow) await writeNummer(state.itemId, meter.zRow, nummer);
       }
       closeDetail();

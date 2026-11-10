@@ -72,7 +72,8 @@ Umleitungs-URIs ergänzen und deren Client-ID verwenden. Die Berechtigungen sind
   (Komma oder Punkt als Dezimaltrennzeichen), optional Foto und Notiz.
   Die App zeigt vor dem Speichern den Verbrauch seit der letzten Ablesung.
 - **Zweirichtungszähler Burgacker 39 (PV):** Beim Strom gibt es zwei Felder, **1.8.0 Bezug** (aus dem Netz)
-  und **2.8.0 Einspeisung** (ins Netz); beide sind Pflicht. In Excel entstehen zwei Zeilen: Medium „Strom“ (1.8.0)
+  und **2.8.0 Einspeisung** (ins Netz); beide sind Pflicht. Zu jedem Wert kann ein eigenes Foto als Nachweis
+  aufgenommen werden (Dateiname endet auf `_1-8-0.jpg` bzw. `_2-8-0.jpg`), verlinkt in der jeweiligen Excel-Zeile. In Excel entstehen zwei Zeilen: Medium „Strom“ (1.8.0)
   und „Strom Einspeisung“ (2.8.0), mit derselben Zählernummer. Hinweis: 1.8.0 ist nur der Netzbezug,
   nicht der Gesamtverbrauch des Hauses (der selbst verbrauchte PV-Strom wird vom Zähler nicht erfasst).
 - **Plausibilitätsprüfung:** Ist der Stand kleiner als zuvor oder der Tagesverbrauch mehr als dreimal so hoch

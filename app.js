@@ -277,10 +277,10 @@ async function ensureFolder(path) {
   }
 }
 
-async function uploadPhoto(blob, meter, datum) {
+async function uploadPhoto(blob, meter, datum, suffix = "") {
   await ensureFolder(C.fotoOrdner);
   const safe = s => s.normalize("NFKD").replace(/[^\w-]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
-  const name = `${isoDate(datum)}_${safe(meter.geb)}_${safe(meter.med)}.jpg`;
+  const name = `${isoDate(datum)}_${safe(meter.geb)}_${safe(meter.med)}${suffix ? "_" + safe(suffix) : ""}.jpg`;
   const item = await graph("PUT",
     `/me/drive/root:/${drivePath(C.fotoOrdner + "/" + name)}:/content?@microsoft.graph.conflictBehavior=rename`,
     blob, "image/jpeg");
@@ -523,7 +523,8 @@ function openDetail(key) {
   const regs = st.regs; // [{ reg, list, last }]
   const d = meter.nachkomma;
   const multi = regs.length > 1;
-  let photoBlob = null, confirmWarn = false;
+  const photoBlobs = regs.map(() => null);
+  let confirmWarn = false;
 
   const kv = regs.map(({ reg, list, last }) => {
     if (!last) return "";
@@ -537,7 +538,10 @@ function openDetail(key) {
   const inputs = regs.map(({ reg, last }, i) => `
     <label class="field" for="stand${i}">${multi ? `Zählerstand ${esc(regTitle(reg))}` : "Zählerstand"}</label>
     <div class="unitwrap"><input type="text" class="big" id="stand${i}" inputmode="decimal" autocomplete="off" placeholder="${last ? fmtNum(last.stand, d) : "0"}"><span>${esc(meter.einheit)}</span></div>
-    <div class="preview" id="pv${i}"></div>`).join("");
+    <div class="preview" id="pv${i}"></div>
+    <label class="field">${multi ? `Foto ${esc(regTitle(reg))} (optional, als Nachweis)` : "Foto vom Zähler (optional, als Nachweis)"}</label>
+    <div class="photo"><img id="thumb${i}" alt="" hidden><label class="btn" for="foto${i}" id="fotobtn${i}">Foto aufnehmen</label>
+      <input type="file" id="foto${i}" class="fotoin" accept="image/*" capture="environment" style="display:none"></div>`).join("");
 
   $sheet.innerHTML = `<div class="grab"></div>
     <h3>${esc(meter.med)}</h3><div class="sub">${esc(meter.geb)}${meter.nummer ? " · Zähler-Nr. " + esc(meter.nummer) : ""}${multi ? " · Zweirichtungszähler" : ""}</div>
@@ -554,10 +558,6 @@ function openDetail(key) {
 
     ${inputs}
     <div class="preview" id="pvall"></div>
-
-    <label class="field">Foto vom Zähler (optional)</label>
-    <div class="photo"><img id="thumb" alt="" hidden><label class="btn" for="foto" id="fotobtn">Foto aufnehmen</label>
-      <input type="file" id="foto" accept="image/*" capture="environment"></div>
 
     <label class="field" for="notiz">Notiz (optional)</label>
     <input type="text" id="notiz" autocomplete="off" placeholder="z. B. Zwischenablesung Mieterwechsel">
@@ -620,22 +620,25 @@ function openDetail(key) {
   $nummer.oninput = update;
   $("#close").onclick = closeDetail;
 
-  $("#foto").onchange = async e => {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    $("#fotobtn").textContent = "Verarbeite ...";
-    try {
-      photoBlob = await shrinkImage(f);
-      const t = $("#thumb");
-      t.src = URL.createObjectURL(photoBlob);
-      t.hidden = false;
-      $("#fotobtn").textContent = `Foto ändern (${Math.round(photoBlob.size / 1024)} KB)`;
-    } catch (err) {
-      photoBlob = null;
-      $("#fotobtn").textContent = "Foto aufnehmen";
-      toast(err.message, 4000);
-    }
-  };
+  regs.forEach((_, i) => {
+    $(`#foto${i}`).onchange = async e => {
+      const f = e.target.files?.[0];
+      if (!f) return;
+      const $btn = $(`#fotobtn${i}`);
+      $btn.textContent = "Verarbeite ...";
+      try {
+        photoBlobs[i] = await shrinkImage(f);
+        const t = $(`#thumb${i}`);
+        t.src = URL.createObjectURL(photoBlobs[i]);
+        t.hidden = false;
+        $btn.textContent = `Foto ändern (${Math.round(photoBlobs[i].size / 1024)} KB)`;
+      } catch (err) {
+        photoBlobs[i] = null;
+        $btn.textContent = "Foto aufnehmen";
+        toast(err.message, 4000);
+      }
+    };
+  });
 
   $save.onclick = async () => {
     const { stands, datum, nummer } = current();
@@ -654,10 +657,13 @@ function openDetail(key) {
       const evs = regs.map((x, i) => evaluate(meter, x.list, datum, stands[i], nummer));
       if (evs.some(ev => ev.warnings.length) && !wasWarn) { update(); return; }
 
-      let fotoUrl = "";
-      if (photoBlob && !DEMO) {
-        $save.textContent = "Lade Foto hoch ...";
-        fotoUrl = await uploadPhoto(photoBlob, meter, datum);
+      const fotoUrls = regs.map(() => "");
+      if (!DEMO) {
+        for (let i = 0; i < regs.length; i++) {
+          if (!photoBlobs[i]) continue;
+          $save.textContent = multi ? `Lade Foto ${regs[i].reg.obis} hoch ...` : "Lade Foto hoch ...";
+          fotoUrls[i] = await uploadPhoto(photoBlobs[i], meter, datum, multi ? regs[i].reg.obis : "");
+        }
       }
       const notizIn = $("#notiz").value.trim();
       const rows = regs.map(({ reg }, i) => {
@@ -665,12 +671,12 @@ function openDetail(key) {
         let notiz = notizIn;
         if (ev.wechsel) notiz = `Zählerwechsel (alt: ${ev.prev.nummer})${notiz ? ". " + notiz : ""}`;
         return [datum, meter.geb, reg.med, nummer, stands[i], meter.einheit,
-          ev.verbrauch ?? "", ev.tage ?? "", ev.proTag ?? "", fotoCell(fotoUrl), notiz, nowSerial()];
+          ev.verbrauch ?? "", ev.tage ?? "", ev.proTag ?? "", fotoCell(fotoUrls[i]), notiz, nowSerial()];
       });
 
       $save.textContent = "Speichere ...";
       if (DEMO) {
-        for (const row of rows) { if (photoBlob) row[A.foto] = "Foto (Demo)"; demo.abl.push(row); }
+        rows.forEach((row, i) => { if (photoBlobs[i]) row[A.foto] = "Foto (Demo)"; demo.abl.push(row); });
         if (nummer !== meter.nummer) {
           const z = demo.zaehler.find(r => r[0] === meter.geb && r[1] === meter.med);
           if (z) z[2] = nummer;

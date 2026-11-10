@@ -13,7 +13,7 @@ Web-App für iPhone und Browser zur Erfassung der Zählerstände (Gas, Wasser, S
 | `config.js` | Einstellungen (Client-ID, Tenant-ID, Dateipfad, Fotoordner, Erinnerung) |
 | `msal-browser.min.js` | Microsoft-Anmeldebibliothek (v3.28.1, lokal mitgeliefert) |
 | `manifest.webmanifest`, `icon-180.png`, `icon-512.png` | App-Symbol für den Home-Bildschirm |
-| `vorlage/Zählerstände.xlsx` | Excel-Vorlage (nicht auf den Webspace hochladen) |
+| `vorlage/Zählerstände.xlsx` | Excel-Vorlage (einmalig ins OneDrive kopieren, enthält keine persönlichen Daten) |
 
 ## 1. Excel-Datei ablegen
 
@@ -26,26 +26,32 @@ Blätter:
 - **Übersicht**: Verbrauch je Monat und Jahr, berechnet automatisch.
 - **Hinweise**: kurze Erklärung.
 
-## 2. Webspace
+## 2. GitHub Pages einschalten (einmalig)
 
-Alle Dateien außer `vorlage/` und `ANLEITUNG.md` in **einen** Ordner hochladen, z. B.
-`https://www.maravia.de/zaehler/`. **HTTPS ist Pflicht.**
+Die App wird wie die Medikamente-App über GitHub Pages bereitgestellt.
+
+1. https://github.com/maravia-ai/zaehlerstaende → **Settings → Pages**
+2. **Source:** „Deploy from a branch“, **Branch:** `main`, Ordner `/ (root)` → **Save**
+3. Nach 1–2 Minuten ist die App erreichbar unter
+   `https://maravia-ai.github.io/zaehlerstaende/`
+
+Änderungen werden automatisch veröffentlicht, sobald sie auf `main` liegen.
 
 ## 3. App-Registrierung in Microsoft Entra ID
 
 1. https://entra.microsoft.com → **Identität → Anwendungen → App-Registrierungen → Neue Registrierung**
 2. Name: `Zählerstände-App`
 3. Unterstützte Kontotypen: **Nur Konten in diesem Organisationsverzeichnis (nur maravia)**
-4. Umleitungs-URI: Plattform **Single-Page-Anwendung (SPA)**, URI aus Schritt 2
-   (z. B. `https://www.maravia.de/zaehler/`) → **Registrieren**
-5. Unter **Authentifizierung** zusätzlich `.../zaehler/index.html` eintragen.
+4. Umleitungs-URI: Plattform **Single-Page-Anwendung (SPA)**,
+   `https://maravia-ai.github.io/zaehlerstaende/` → **Registrieren**
+5. Unter **Authentifizierung** zusätzlich `https://maravia-ai.github.io/zaehlerstaende/index.html` eintragen.
 6. **API-Berechtigungen → Berechtigung hinzufügen → Microsoft Graph → Delegierte Berechtigungen**:
    `Files.ReadWrite`, `Calendars.ReadWrite` (`User.Read` ist schon vorhanden).
    Optional: **Administratorzustimmung für maravia erteilen**.
 7. **Anwendungs-ID (Client)** von der Übersichtsseite in `config.js` bei `clientId` eintragen.
    Die Mandanten-ID ist bereits eingetragen (dieselbe wie bei der Medikamente-App).
 
-`config.js` erneut hochladen.
+Die geänderte `config.js` muss auf `main` liegen (Claude pusht sie, wenn du die ID schickst).
 
 Alternative: In der bestehenden Registrierung „Medikamente-App“ nur die beiden neuen
 Umleitungs-URIs ergänzen und deren Client-ID verwenden. Die Berechtigungen sind dort identisch.
@@ -77,7 +83,7 @@ Umleitungs-URIs ergänzen und deren Client-ID verwenden. Die Berechtigungen sind
 
 ## Demo
 
-`https://<deine-adresse>/?demo` zeigt die App mit Beispieldaten, ohne Anmeldung und ohne zu speichern.
+`https://maravia-ai.github.io/zaehlerstaende/?demo` zeigt die App mit Beispieldaten, ohne Anmeldung und ohne zu speichern.
 
 ## Einschränkungen
 

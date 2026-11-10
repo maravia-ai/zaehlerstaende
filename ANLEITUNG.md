@@ -71,6 +71,10 @@ Umleitungs-URIs ergänzen und deren Client-ID verwenden. Die Berechtigungen sind
 - **Zähler antippen → erfassen:** Datum (Standard heute, rückdatieren möglich), Zählerstand
   (Komma oder Punkt als Dezimaltrennzeichen), optional Foto und Notiz.
   Die App zeigt vor dem Speichern den Verbrauch seit der letzten Ablesung.
+- **Zweirichtungszähler Burgacker 39 (PV):** Beim Strom gibt es zwei Felder, **1.8.0 Bezug** (aus dem Netz)
+  und **2.8.0 Einspeisung** (ins Netz); beide sind Pflicht. In Excel entstehen zwei Zeilen: Medium „Strom“ (1.8.0)
+  und „Strom Einspeisung“ (2.8.0), mit derselben Zählernummer. Hinweis: 1.8.0 ist nur der Netzbezug,
+  nicht der Gesamtverbrauch des Hauses (der selbst verbrauchte PV-Strom wird vom Zähler nicht erfasst).
 - **Plausibilitätsprüfung:** Ist der Stand kleiner als zuvor oder der Tagesverbrauch mehr als dreimal so hoch
   wie im Schnitt der letzten 6 Ablesungen, erscheint eine Warnung; der Button heißt dann „Trotzdem speichern“.
 - **Zwischenablesungen** sind jederzeit möglich (z. B. bei Mieterwechsel), einfach erneut erfassen.

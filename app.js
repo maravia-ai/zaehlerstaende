@@ -9,6 +9,8 @@
  *     G Verbrauch | H Tage | I Verbrauch pro Tag | J Foto | K Notiz | L Erfasst am
  * Verbrauch = Zählerstand − letzter Zählerstand desselben Zählers (am oder vor dem Ablesedatum).
  * Bei geänderter Zählernummer (Zählerwechsel) wird kein Verbrauch berechnet.
+ * Zähler mit mehreren Registern (z. B. Zweirichtungszähler 1.8.0/2.8.0) schreiben je Register eine Zeile
+ * mit eigenem Medium (siehe config.js).
  */
 
 const C = window.APP_CONFIG;
@@ -75,7 +77,6 @@ function parseDecimal(s) {
   if (!/^\d+(\.\d+)?$/.test(t)) return NaN;
   return Number(t);
 }
-function medium(name) { return C.medien.find(m => m.name === name) || { name, einheit: "", nachkomma: 3 }; }
 function meterKey(geb, med) { return geb + "|" + med; }
 
 function toast(msg, ms = 2600) {
@@ -179,10 +180,13 @@ function parseZaehler(values) {
     if (geb && med) byKey.set(meterKey(geb, med), { row: i + 2, nummer: String(r[2] ?? "").trim() });
   });
   const meters = [];
-  for (const geb of C.gebaeude) {
-    for (const m of C.medien) {
-      const z = byKey.get(meterKey(geb, m.name));
-      meters.push({ geb, med: m.name, einheit: m.einheit, nachkomma: m.nachkomma, nummer: z?.nummer || "", zRow: z?.row || null });
+  for (const g of C.gebaeude) {
+    for (const m of g.zaehler) {
+      const z = byKey.get(meterKey(g.name, m.medium));
+      const regs = (m.register || [{ medium: m.medium, obis: "", label: "" }])
+        .map(r => ({ med: r.medium, obis: r.obis || "", label: r.label || "" }));
+      meters.push({ geb: g.name, med: m.medium, einheit: m.einheit, nachkomma: m.nachkomma, regs,
+        nummer: z?.nummer || "", zRow: z?.row || null });
     }
   }
   return meters;
@@ -336,7 +340,7 @@ async function syncMonthlyReminder() {
     subject: "Zählerstände ablesen",
     body: {
       contentType: "text",
-      content: `Gas, Wasser und Strom ablesen:\n${C.gebaeude.map(g => "- " + g).join("\n")}\n\nApp: ${location.origin + location.pathname}\n\nAutomatisch erstellt von der Zählerstände-App.`
+      content: `Gas, Wasser und Strom ablesen:\n${C.gebaeude.map(g => "- " + g.name).join("\n")}\n\nApp: ${location.origin + location.pathname}\n\nAutomatisch erstellt von der Zählerstände-App.`
     },
     start: { dateTime: `${d}T${t(hh, mm)}`, timeZone: C.zeitzone },
     end: { dateTime: `${d}T${t(Math.floor(endMin / 60), endMin % 60)}`, timeZone: C.zeitzone },
@@ -358,21 +362,25 @@ const demo = (() => {
   const T = todaySerial();
   const zaehler = [["Gebäude", "Medium", "Zählernummer", "Einheit"]];
   const abl = [HEAD_ABL.slice()];
-  const base = { "Burgacker 39": { Gas: 18234.512, Wasser: 812.304, Strom: 45210.4 }, "Leipziger Str. 7": { Gas: 9876.105, Wasser: 455.021, Strom: 23118.0 } };
-  const rate = { Gas: 9.5, Wasser: 0.32, Strom: 11.2 };
+  const base = { Gas: 18234.512, Wasser: 812.304, Strom: 45210.4, "Strom Einspeisung": 3120.0 };
+  const rate = { Gas: 9.5, Wasser: 0.32, Strom: 7.4, "Strom Einspeisung": 8.1 };
   let nr = 1000;
-  for (const g of C.gebaeude) for (const m of C.medien) {
-    const num = `DEMO-${++nr}`;
-    zaehler.push([g, m.name, num, m.einheit]);
-    let prev = null;
-    for (let k = 3; k >= 1; k--) {
-      const d = T - k * 30;
-      const stand = round(base[g][m.name] + (3 - k) * 30 * rate[m.name] * (g === C.gebaeude[0] ? 1 : 0.6), m.nachkomma);
-      const v = prev ? round(stand - prev.stand, m.nachkomma) : "";
-      abl.push([d, g, m.name, num, stand, m.einheit, v, prev ? 30 : "", prev ? round(v / 30, 3) : "", "", "", d + 0.4]);
-      prev = { stand };
+  C.gebaeude.forEach((g, gi) => {
+    for (const m of g.zaehler) {
+      const num = `DEMO-${++nr}`;
+      zaehler.push([g.name, m.medium, num, m.einheit]);
+      for (const r of (m.register || [{ medium: m.medium }])) {
+        let prev = null;
+        for (let k = 3; k >= 1; k--) {
+          const d = T - k * 30;
+          const stand = round(base[r.medium] * (gi ? 0.5 : 1) + (3 - k) * 30 * rate[r.medium] * (gi ? 0.6 : 1), m.nachkomma);
+          const v = prev ? round(stand - prev.stand, m.nachkomma) : "";
+          abl.push([d, g.name, r.medium, num, stand, m.einheit, v, prev ? 30 : "", prev ? round(v / 30, 3) : "", "", "", d + 0.4]);
+          prev = { stand };
+        }
+      }
     }
-  }
+  });
   return { zaehler, abl };
 })();
 
@@ -398,26 +406,34 @@ async function load() {
 
 /* ---------- Darstellung ---------- */
 
+function regTitle(reg) { return [reg.obis, reg.label].filter(Boolean).join(" "); }
+
 function meterStatus(meter) {
-  const list = readingsOf(meter.geb, meter.med);
-  const last = list[list.length - 1] || null;
   const mk = monthKey(todaySerial());
-  const done = list.some(r => monthKey(r.datum) === mk);
-  return { list, last, done };
+  const regs = meter.regs.map(reg => {
+    const list = readingsOf(meter.geb, reg.med);
+    return { reg, list, last: list[list.length - 1] || null, done: list.some(r => monthKey(r.datum) === mk) };
+  });
+  const lastDates = regs.filter(x => x.last).map(x => x.last.datum);
+  return { regs, done: regs.every(x => x.done), lastDatum: lastDates.length ? Math.max(...lastDates) : null };
 }
 
 function rowHtml(meter) {
-  const { last, done } = meterStatus(meter);
-  const badge = done ? `<span class="badge done">erfasst</span>` : `<span class="badge open">offen</span>`;
+  const st = meterStatus(meter);
+  const badge = st.done ? `<span class="badge done">erfasst</span>` : `<span class="badge open">offen</span>`;
   const d = meter.nachkomma;
-  const right = last
-    ? `<div class="val">${fmtNum(last.stand, d)} ${esc(meter.einheit)}</div>
-       <div class="meta">${last.verbrauch !== null ? `+${fmtNum(last.verbrauch, d)}${last.tage ? ` in ${last.tage} T.` : ""}` : "&nbsp;"}</div>`
-    : `<div class="meta">noch keine<br>Ablesung</div>`;
+  const multi = meter.regs.length > 1;
+  const right = st.regs.map(({ reg, last }) => {
+    const pre = multi ? `<span class="meta">${esc(reg.obis)}</span> ` : "";
+    if (!last) return `<div class="meta">${multi ? esc(reg.obis) + ": " : ""}noch keine Ablesung</div>`;
+    const v = `<div class="val">${pre}${fmtNum(last.stand, d)} ${esc(meter.einheit)}</div>`;
+    const c = last.verbrauch !== null ? `<div class="meta">+${fmtNum(last.verbrauch, d)}${last.tage ? ` in ${last.tage} T.` : ""}</div>` : "";
+    return v + (multi ? "" : c || `<div class="meta">&nbsp;</div>`);
+  }).join("");
   return `<button class="row m-${esc(meter.med)}" data-key="${esc(meterKey(meter.geb, meter.med))}">
     <span class="dot"></span>
     <div><div class="name">${esc(meter.med)}${badge}</div>
-      <div class="meta">${meter.nummer ? "Nr. " + esc(meter.nummer) : "Zählernummer fehlt"}${last ? " · " + fmtDate(last.datum) : ""}</div></div>
+      <div class="meta">${meter.nummer ? "Nr. " + esc(meter.nummer) : "Zählernummer fehlt"}${st.lastDatum ? " · " + fmtDate(st.lastDatum) : ""}${multi ? " · Zweirichtung" : ""}</div></div>
     <div class="right">${right}</div>
   </button>`;
 }
@@ -448,11 +464,11 @@ function render() {
     const nDone = state.meters.filter(m => meterStatus(m).done).length;
     const nAll = state.meters.length;
     html += `<div class="summary">
-      <div class="tile ${nDone === nAll ? "ok" : "warn"}"><b>${nDone} / ${nAll}</b><span>erfasst im ${esc(monthName(T))}</span></div>
-      <div class="tile"><b>${state.readings.length}</b><span>Ablesungen gesamt</span></div></div>`;
+      <div class="tile ${nDone === nAll ? "ok" : "warn"}"><b>${nDone} / ${nAll}</b><span>Zähler erfasst im ${esc(monthName(T))}</span></div>
+      <div class="tile"><b>${state.readings.length}</b><span>Ablesewerte gesamt</span></div></div>`;
 
-    for (const geb of C.gebaeude) {
-      html += `<h2>${esc(geb)}</h2><div class="list">${state.meters.filter(m => m.geb === geb).map(rowHtml).join("")}</div>`;
+    for (const g of C.gebaeude) {
+      html += `<h2>${esc(g.name)}</h2><div class="list">${state.meters.filter(m => m.geb === g.name).map(rowHtml).join("")}</div>`;
     }
 
     html += `<div class="actions">
@@ -484,34 +500,48 @@ function render() {
 function closeDetail() { $backdrop.classList.remove("open"); }
 $backdrop.addEventListener("click", e => { if (e.target === $backdrop) closeDetail(); });
 
-function histHtml(meter, list) {
-  if (!list.length) return "";
+function histHtml(meter, regs) {
   const d = meter.nachkomma;
-  const rows = list.slice(-12).reverse().map(r => {
-    const link = /^https?:\/\//.test(r.foto) ? r.foto : (/HYPERLINK\("([^"]+)"/i.exec(r.foto)?.[1] || "");
-    return `<tr><td>${fmtDate(r.datum)}</td>
-      <td class="r">${fmtNum(r.stand, d)}</td>
-      <td class="r">${r.verbrauch !== null ? "+" + fmtNum(r.verbrauch, d) : (r.notiz.startsWith("Zählerwechsel") ? "Wechsel" : "–")}</td>
-      <td class="r">${link ? `<a href="${esc(link)}" target="_blank" rel="noopener">Foto</a>` : (r.foto ? "Foto" : "")}</td></tr>`;
+  const multi = regs.length > 1;
+  return regs.map(({ reg, list }) => {
+    if (!list.length) return "";
+    const rows = list.slice(-12).reverse().map(r => {
+      const link = /^https?:\/\//.test(r.foto) ? r.foto : (/HYPERLINK\("([^"]+)"/i.exec(r.foto)?.[1] || "");
+      return `<tr><td>${fmtDate(r.datum)}</td>
+        <td class="r">${fmtNum(r.stand, d)}</td>
+        <td class="r">${r.verbrauch !== null ? "+" + fmtNum(r.verbrauch, d) : (r.notiz.startsWith("Zählerwechsel") ? "Wechsel" : "–")}</td>
+        <td class="r">${link ? `<a href="${esc(link)}" target="_blank" rel="noopener">Foto</a>` : (r.foto ? "Foto" : "")}</td></tr>`;
+    }).join("");
+    return `<h2>Letzte Ablesungen${multi ? " · " + esc(regTitle(reg)) : ""}</h2><div class="list"><table class="hist">${rows}</table></div>`;
   }).join("");
-  return `<h2>Letzte Ablesungen</h2><div class="list"><table class="hist">${rows}</table></div>`;
 }
 
 function openDetail(key) {
   const meter = state.meters.find(m => meterKey(m.geb, m.med) === key);
   if (!meter) return;
-  let { list, last } = meterStatus(meter);
+  const st = meterStatus(meter);
+  const regs = st.regs; // [{ reg, list, last }]
   const d = meter.nachkomma;
-  const avg = avgPerDay(list);
+  const multi = regs.length > 1;
   let photoBlob = null, confirmWarn = false;
 
+  const kv = regs.map(({ reg, list, last }) => {
+    if (!last) return "";
+    const avg = avgPerDay(list);
+    const t = multi ? esc(regTitle(reg)) + ": " : "";
+    return `<div><span>${t}Letzter Stand</span><span>${fmtNum(last.stand, d)} ${esc(meter.einheit)}</span></div>
+      <div><span>${t}Abgelesen am</span><span>${fmtDate(last.datum)}</span></div>
+      ${avg !== null ? `<div><span>${t}Ø pro Tag</span><span>${fmtNum(avg, 3)} ${esc(meter.einheit)}</span></div>` : ""}`;
+  }).join("");
+
+  const inputs = regs.map(({ reg, last }, i) => `
+    <label class="field" for="stand${i}">${multi ? `Zählerstand ${esc(regTitle(reg))}` : "Zählerstand"}</label>
+    <div class="unitwrap"><input type="text" class="big" id="stand${i}" inputmode="decimal" autocomplete="off" placeholder="${last ? fmtNum(last.stand, d) : "0"}"><span>${esc(meter.einheit)}</span></div>
+    <div class="preview" id="pv${i}"></div>`).join("");
+
   $sheet.innerHTML = `<div class="grab"></div>
-    <h3>${esc(meter.med)}</h3><div class="sub">${esc(meter.geb)}${meter.nummer ? " · Zähler-Nr. " + esc(meter.nummer) : ""}</div>
-    ${last ? `<div class="kv">
-      <div><span>Letzter Stand</span><span>${fmtNum(last.stand, d)} ${esc(meter.einheit)}</span></div>
-      <div><span>Abgelesen am</span><span>${fmtDate(last.datum)}</span></div>
-      ${avg !== null ? `<div><span>Ø Verbrauch</span><span>${fmtNum(avg, 3)} ${esc(meter.einheit)}/Tag</span></div>` : ""}
-    </div>` : `<p class="hint" style="margin:12px 4px">Erste Ablesung für diesen Zähler. Der Verbrauch wird ab der zweiten Ablesung berechnet.</p>`}
+    <h3>${esc(meter.med)}</h3><div class="sub">${esc(meter.geb)}${meter.nummer ? " · Zähler-Nr. " + esc(meter.nummer) : ""}${multi ? " · Zweirichtungszähler" : ""}</div>
+    ${kv ? `<div class="kv">${kv}</div>` : `<p class="hint" style="margin:12px 4px">Erste Ablesung für diesen Zähler. Der Verbrauch wird ab der zweiten Ablesung berechnet.</p>`}
 
     <div class="grid2" style="margin-top:14px">
       <div><label class="field" for="datum">Ablesedatum</label>
@@ -520,10 +550,10 @@ function openDetail(key) {
         <input type="text" id="nummer" value="${esc(meter.nummer)}" autocomplete="off" autocapitalize="characters" placeholder="eintragen"></div>
     </div>
     <p class="hint">Zählernummer nur bei Zählerwechsel ändern. Dann wird kein Verbrauch berechnet; den Endstand des alten Zählers vorher unter der alten Nummer erfassen.</p>
+    ${multi ? `<p class="hint">Am Zähler-Display: 1.8.0 = Bezug aus dem Netz, 2.8.0 = Einspeisung ins Netz. Beide Werte sind erforderlich.</p>` : ""}
 
-    <label class="field" for="stand">Zählerstand</label>
-    <div class="unitwrap"><input type="text" class="big" id="stand" inputmode="decimal" autocomplete="off" placeholder="${last ? fmtNum(last.stand, d) : "0"}"><span>${esc(meter.einheit)}</span></div>
-    <div class="preview" id="pv"></div>
+    ${inputs}
+    <div class="preview" id="pvall"></div>
 
     <label class="field">Foto vom Zähler (optional)</label>
     <div class="photo"><img id="thumb" alt="" hidden><label class="btn" for="foto" id="fotobtn">Foto aufnehmen</label>
@@ -536,47 +566,56 @@ function openDetail(key) {
       <button class="btn primary" id="save" disabled>Speichern</button>
       <button class="btn" id="close">Schließen</button>
     </div>
-    ${histHtml(meter, list)}`;
+    ${histHtml(meter, regs)}`;
 
   const $ = s => $sheet.querySelector(s);
-  const $stand = $("#stand"), $datum = $("#datum"), $nummer = $("#nummer"), $pv = $("#pv"), $save = $("#save");
+  const $datum = $("#datum"), $nummer = $("#nummer"), $save = $("#save"), $pvall = $("#pvall");
+  const $stands = regs.map((_, i) => $(`#stand${i}`));
+  const $pvs = regs.map((_, i) => $(`#pv${i}`));
 
   function current() {
-    const stand = parseDecimal($stand.value);
-    const datum = isoToSerial($datum.value);
-    const nummer = $nummer.value.trim();
-    return { stand, datum, nummer };
+    return {
+      stands: $stands.map(x => parseDecimal(x.value)),
+      datum: isoToSerial($datum.value),
+      nummer: $nummer.value.trim()
+    };
   }
 
   function update() {
     confirmWarn = false;
     $save.className = "btn primary";
     $save.textContent = "Speichern";
-    const { stand, datum, nummer } = current();
-    $pv.className = "preview";
-    if (datum === null || datum > todaySerial()) { $pv.textContent = "Bitte ein gültiges Datum (nicht in der Zukunft) wählen."; $save.disabled = true; return; }
-    if (stand === null) { $pv.textContent = ""; $save.disabled = true; return; }
-    if (Number.isNaN(stand)) { $pv.textContent = "Bitte nur Ziffern und ggf. ein Komma eingeben."; $save.disabled = true; return; }
-    $save.disabled = false;
-    const ev = evaluate(meter, list, datum, stand, nummer);
-    const parts = [`Erfasst wird: ${fmtNum(stand, d)} ${meter.einheit}`];
-    if (ev.wechsel) parts.push(`Zählerwechsel (alt: ${ev.prev.nummer}) – kein Verbrauch`);
-    else if (ev.verbrauch !== null) {
-      parts.push(`Verbrauch seit ${fmtDate(ev.prev.datum)}: ${fmtNum(ev.verbrauch, d)} ${meter.einheit}` +
-        (ev.proTag !== null ? ` (${ev.tage} T., ${fmtNum(ev.proTag, 3)} ${meter.einheit}/Tag)` : ""));
-    }
-    if (ev.later) parts.push("Hinweis: Es gibt bereits eine spätere Ablesung. Deren Verbrauchswert wird nicht neu berechnet.");
-    if (ev.warnings.length) {
-      $pv.className = "preview warn";
-      parts.push(...ev.warnings);
+    $pvall.className = "preview"; $pvall.textContent = "";
+    const { stands, datum, nummer } = current();
+    $pvs.forEach(p => { p.className = "preview"; p.textContent = ""; });
+    if (datum === null || datum > todaySerial()) { $pvall.textContent = "Bitte ein gültiges Datum (nicht in der Zukunft) wählen."; $save.disabled = true; return; }
+    let complete = true, anyWarn = false;
+    regs.forEach(({ list }, i) => {
+      const stand = stands[i], $pv = $pvs[i];
+      if (stand === null) { complete = false; return; }
+      if (Number.isNaN(stand)) { complete = false; $pv.textContent = "Bitte nur Ziffern und ggf. ein Komma eingeben."; return; }
+      const ev = evaluate(meter, list, datum, stand, nummer);
+      const parts = [`Erfasst wird: ${fmtNum(stand, d)} ${meter.einheit}`];
+      if (ev.wechsel) parts.push(`Zählerwechsel (alt: ${ev.prev.nummer}) – kein Verbrauch`);
+      else if (ev.verbrauch !== null) {
+        parts.push(`Seit ${fmtDate(ev.prev.datum)}: ${fmtNum(ev.verbrauch, d)} ${meter.einheit}` +
+          (ev.proTag !== null ? ` (${ev.tage} T., ${fmtNum(ev.proTag, 3)} ${meter.einheit}/Tag)` : ""));
+      }
+      if (ev.later) parts.push("Hinweis: Es gibt bereits eine spätere Ablesung. Deren Verbrauchswert wird nicht neu berechnet.");
+      if (ev.warnings.length) { $pv.className = "preview warn"; parts.push(...ev.warnings); anyWarn = true; }
+      else if (ev.verbrauch !== null) $pv.className = "preview ok";
+      $pv.innerHTML = parts.map(esc).join("<br>");
+    });
+    $save.disabled = !complete;
+    if (!complete && multi && stands.some(s => s !== null)) $pvall.textContent = "Bitte beide Werte (1.8.0 und 2.8.0) eingeben.";
+    if (complete && anyWarn) {
       $save.className = "btn warnbtn";
       $save.textContent = "Trotzdem speichern";
       confirmWarn = true;
-    } else if (ev.verbrauch !== null) $pv.className = "preview ok";
-    $pv.innerHTML = parts.map(esc).join("<br>");
+    }
   }
 
-  $stand.oninput = update;
+  $stands.forEach(x => x.oninput = update);
   $datum.oninput = update;
   $nummer.oninput = update;
   $("#close").onclick = closeDetail;
@@ -599,8 +638,8 @@ function openDetail(key) {
   };
 
   $save.onclick = async () => {
-    const { stand, datum, nummer } = current();
-    if (stand === null || Number.isNaN(stand) || datum === null) return;
+    const { stands, datum, nummer } = current();
+    if (datum === null || stands.some(s => s === null || Number.isNaN(s))) return;
     const wasWarn = confirmWarn;
     $save.disabled = true; $save.textContent = "Speichere ...";
     try {
@@ -609,42 +648,44 @@ function openDetail(key) {
         // Vor dem Schreiben frisch lesen, damit der Verbrauch auf dem aktuellen Stand berechnet wird
         const t = await graph("GET", `${tbl(state.itemId)}/range?$select=values,formulas`);
         const p = parseAblesungen(t.values, t.formulas);
-        list = readingsOf(meter.geb, meter.med, p.readings);
+        regs.forEach(x => { x.list = readingsOf(meter.geb, x.reg.med, p.readings); });
         blankRow = p.blankRow;
       }
-      const ev = evaluate(meter, list, datum, stand, nummer);
-      if (ev.warnings.length && !wasWarn) { update(); return; }
+      const evs = regs.map((x, i) => evaluate(meter, x.list, datum, stands[i], nummer));
+      if (evs.some(ev => ev.warnings.length) && !wasWarn) { update(); return; }
 
       let fotoUrl = "";
       if (photoBlob && !DEMO) {
         $save.textContent = "Lade Foto hoch ...";
         fotoUrl = await uploadPhoto(photoBlob, meter, datum);
       }
-      let notiz = $("#notiz").value.trim();
-      if (ev.wechsel) notiz = `Zählerwechsel (alt: ${ev.prev.nummer})${notiz ? ". " + notiz : ""}`;
-
-      const row = [datum, meter.geb, meter.med, nummer, stand, meter.einheit,
-        ev.verbrauch ?? "", ev.tage ?? "", ev.proTag ?? "", fotoCell(fotoUrl), notiz, nowSerial()];
+      const notizIn = $("#notiz").value.trim();
+      const rows = regs.map(({ reg }, i) => {
+        const ev = evs[i];
+        let notiz = notizIn;
+        if (ev.wechsel) notiz = `Zählerwechsel (alt: ${ev.prev.nummer})${notiz ? ". " + notiz : ""}`;
+        return [datum, meter.geb, reg.med, nummer, stands[i], meter.einheit,
+          ev.verbrauch ?? "", ev.tage ?? "", ev.proTag ?? "", fotoCell(fotoUrl), notiz, nowSerial()];
+      });
 
       $save.textContent = "Speichere ...";
       if (DEMO) {
-        if (photoBlob) row[A.foto] = "Foto (Demo)";
-        demo.abl.push(row);
+        for (const row of rows) { if (photoBlob) row[A.foto] = "Foto (Demo)"; demo.abl.push(row); }
         if (nummer !== meter.nummer) {
           const z = demo.zaehler.find(r => r[0] === meter.geb && r[1] === meter.med);
           if (z) z[2] = nummer;
         }
       } else {
-        await appendRow(state.itemId, row, blankRow);
+        for (let i = 0; i < rows.length; i++) await appendRow(state.itemId, rows[i], blankRow && i === 0);
         if (nummer !== meter.nummer && meter.zRow) await writeNummer(state.itemId, meter.zRow, nummer);
       }
       closeDetail();
       await load();
-      toast(`${meter.med} ${meter.geb}: ${fmtNum(stand, d)} ${meter.einheit} gespeichert.`);
+      toast(`${meter.med} ${meter.geb}: ${stands.map(s => fmtNum(s, d)).join(" / ")} ${meter.einheit} gespeichert.`);
     } catch (e) {
       $save.disabled = false; $save.className = "btn primary"; $save.textContent = "Speichern";
-      $pv.className = "preview warn";
-      $pv.textContent = e.message;
+      $pvall.className = "preview warn";
+      $pvall.textContent = e.message;
     }
   };
 

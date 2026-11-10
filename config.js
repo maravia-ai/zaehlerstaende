@@ -21,11 +21,22 @@ window.APP_CONFIG = {
   zeitzone: "W. Europe Standard Time",
 
   // Gebäude und Zähler. Reihenfolge = Reihenfolge in der App.
-  // Die Zählernummern stehen im Blatt "Zähler" der Excel-Datei.
-  gebaeude: ["Burgacker 39", "Leipziger Str. 7"],
-  medien: [
-    { name: "Gas",    einheit: "m³",  nachkomma: 3 },
-    { name: "Wasser", einheit: "m³",  nachkomma: 3 },
-    { name: "Strom",  einheit: "kWh", nachkomma: 1 }
+  // Die Zählernummern stehen im Blatt "Zähler" der Excel-Datei (Zeile mit dem Medium des Zählers).
+  // "register": Zähler mit mehreren Zählwerken (z. B. Zweirichtungszähler). Jedes Register wird
+  // in Excel als eigene Zeile mit eigenem "Medium" gespeichert.
+  gebaeude: [
+    { name: "Burgacker 39", zaehler: [
+      { medium: "Gas",    einheit: "m³",  nachkomma: 3 },
+      { medium: "Wasser", einheit: "m³",  nachkomma: 3 },
+      { medium: "Strom",  einheit: "kWh", nachkomma: 1, register: [
+        { medium: "Strom",             obis: "1.8.0", label: "Bezug" },
+        { medium: "Strom Einspeisung", obis: "2.8.0", label: "Einspeisung" }
+      ] }
+    ] },
+    { name: "Leipziger Str. 7", zaehler: [
+      { medium: "Gas",    einheit: "m³",  nachkomma: 3 },
+      { medium: "Wasser", einheit: "m³",  nachkomma: 3 },
+      { medium: "Strom",  einheit: "kWh", nachkomma: 1 }
+    ] }
   ]
 };

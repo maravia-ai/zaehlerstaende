@@ -17,9 +17,8 @@ Web-App für iPhone und Browser zur Erfassung der Zählerstände (Gas, Wasser, S
 
 ## 1. Excel-Datei ablegen
 
-`vorlage/Zählerstände.xlsx` in dein OneDrive kopieren, Standard: `Zählerstände/Zählerstände.xlsx`
-(Ordner „Zählerstände“ direkt unter „Meine Dateien“). Ein anderer Ort ist möglich, dann
-`filePath` und `fotoOrdner` in `config.js` anpassen.
+`vorlage/Zählerstände.xlsx` in dein OneDrive nach `1 - Dirk/06 Immobilien/Zählerstände.xlsx` kopieren.
+Ein anderer Ort ist möglich, dann `filePath` und `fotoOrdner` in `config.js` anpassen.
 
 Blätter:
 - **Ablesungen**: Excel-Tabelle „Ablesungen“, wird von der App befüllt.
@@ -72,7 +71,7 @@ Umleitungs-URIs ergänzen und deren Client-ID verwenden. Die Berechtigungen sind
 - **Zählerwechsel:** erst den Endstand des alten Zählers erfassen, dann beim neuen Zähler die neue
   Zählernummer eingeben. Für diese Ablesung wird kein Verbrauch berechnet; die Nummer im Blatt „Zähler“
   wird aktualisiert.
-- **Fotos** werden verkleinert (max. 1600 px) im OneDrive-Ordner `Zählerstände/Fotos` gespeichert und in
+- **Fotos** werden verkleinert (max. 1600 px) im OneDrive-Ordner `1 - Dirk/06 Immobilien/Zählerstände Fotos` gespeichert und in
   Spalte „Foto“ verlinkt.
 - **Korrekturen** direkt in Excel. Die App berechnet bereits gespeicherte Verbrauchswerte nicht neu.
 

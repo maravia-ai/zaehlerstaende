@@ -8,10 +8,10 @@ window.APP_CONFIG = {
   tenantId: "e4e57d17-93c0-4e0e-a004-ec2c9ea7a8e0",
 
   // Pfad der Excel-Datei in deinem OneDrive (relativ zum OneDrive-Stammordner)
-  filePath: "Zählerstände/Zählerstände.xlsx",
+  filePath: "1 - Dirk/06 Immobilien/Zählerstände.xlsx",
 
   // Ordner für die Zählerfotos (wird bei Bedarf angelegt)
-  fotoOrdner: "Zählerstände/Fotos",
+  fotoOrdner: "1 - Dirk/06 Immobilien/Zählerstände Fotos",
 
   // Monatliche Kalender-Erinnerung: Tag im Monat und Uhrzeit
   erinnerungTag: 1,

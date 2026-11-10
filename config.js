@@ -2,7 +2,7 @@
 // Nach der App-Registrierung in Microsoft Entra ID hier die beiden IDs eintragen.
 window.APP_CONFIG = {
   // "Anwendungs-ID (Client)" aus der Entra-App-Registrierung
-  clientId: "HIER_CLIENT_ID_EINTRAGEN",
+  clientId: "610e8d29-c63a-45c5-92dd-21dc7367388a",
 
   // "Verzeichnis-ID (Mandant)" aus der Entra-App-Registrierung (gleich wie bei der Medikamente-App)
   tenantId: "e4e57d17-93c0-4e0e-a004-ec2c9ea7a8e0",
